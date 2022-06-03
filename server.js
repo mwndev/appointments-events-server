@@ -22,15 +22,44 @@ app.listen(PORT, () => {
 
 
 //for booking an appointment
-
+const Appointment = require('./config/models/appointmentModel')
 //uses dd-mm-yyyy format
-app.get('/appointment/:date', async (req, res) => {
+app.get('/appointment/:year?/:month?/:day?/:timeframe?', async (req, res) => {
     try {
-        console.log(req)
-        //queries mongo object dd-mm-yyyy{hh:mm-hh:mm: false}
-        res.json({message: req.params.date})
+        const appointments = await Appointment.find()
+        res.status(200).json(appointments)
 
     } catch (error) {
+        console.log(error)
+    }
+})
+
+app.post('/appointment/', async (req, res) => {
+    try {
+        console.log(req.body)
+        const appointment = await Appointment.create({
+            appointment: {  
+                date: req.body.date,
+                email: req.body.email,
+                period: req.body.period
+            }
+    })
+
+    res.status(200).json(appointment)
+    } catch (err) {
+        console.log(err)
         
+    }
+    
+})
+
+app.delete('/appointment', async(req, res) => {
+    //req.body.appointment is an object like in the post request
+    console.log(req.body)
+    try {
+        const appointment = await Appointment.deleteOne({appointment: req.body.appointment})
+        res.status(200).json({appointment})
+    } catch (error) {
+        console.log(error.message)
     }
 })
