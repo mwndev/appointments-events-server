@@ -63,3 +63,21 @@ app.delete('/appointment', async(req, res) => {
         console.log(error.message)
     }
 })
+
+app.put('/appointment/:id', async (req, res) => {
+    console.log(req.body)
+    console.log(req.params.id)
+    try {
+        const existingBooking = await Appointment.findById(req.params.id)
+        if (!existingBooking) {
+            res.status(400).json({ message: 'booking does not exist' })
+        }
+        const updatedBooking = await Appointment.updateOne({id: req.params.id}, {
+            appointment: req.body.appointment
+        })
+        res.status(200).json(updatedBooking)
+        
+    } catch (error) {
+        console.log(error)
+    }
+})
