@@ -2,18 +2,49 @@ const mongoose = require('mongoose')
 
 const appointmentSchema = mongoose.Schema({
     appointment: {
+        
         date: {
-            type: String,
-            required: [true, 'enter the date'],
-            
+            year: {
+                type: Number,
+                required: [true, 'y']
+            },
+            month: {
+                type: Number,
+                required: [true, 'm']
+            },
+            day: {
+                type: Number,
+                required: [true, 'd']
+            },
+            dayOfWeek: {
+                type: Number,
+                required: [true, 'dayofweek']
+            },
+            dateAsNum: {
+                type: Number,
+                required: true,
+            },
+            dateAsString: String,
         },
         period:{
-            type: String,
-            //required: [true, 'no time given'],
+            start: {
+                type: Number,
+                required: [true, 'start of period']
+            },
+            end: {
+                type: Number,
+                required: [true, 'end of period']
+            },
         },
-        email: {
-            type: String,
-            //required: [true, 'enter email']
+        reservation: {
+            email: {
+                type: String,
+                default: null,
+            },
+            isTaken: {
+                type: Boolean,
+                default: false,
+            }
         }
             
         
