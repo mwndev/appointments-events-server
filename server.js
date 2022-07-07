@@ -15,6 +15,14 @@ const PORT = process.env.EXPRESS_PORT
 
 app.use(cors())
 app.use(express.json())
+ 
+
+process.stdin.on('data', data => {
+    console.log(`this program does not take in shell arguments.`)
+})
+
+
+
 
 
 app.listen(PORT, () => {
@@ -57,6 +65,7 @@ app.post('/appointment/admin', async (req, res) => {
         for(let i = 0 ; i < startDate.until(endDate).days; i +=1 ){
             
             dateToAdd = startDate.add({days: i})
+            console.log(startDate)
             //onDaysOfWeek === [true, false, true, true, true, false, false] for eack weekday
             if(req.body.onDaysOfWeek[dateToAdd.dayOfWeek - 1] === true)
 
@@ -93,8 +102,19 @@ app.post('/appointment/admin', async (req, res) => {
 app.delete('/appointment/admin', async(req, res) => {
     //req.body.appointment is an object like in the post request
     console.log(req.body)
+    
     try {
-        const mongoRes = await Appointment.deleteMany({dateAsNum: { $gte: req.body.startDate.dateAsNum, $lte: req.body.endDate.dateAsNum}})
+        const mongoRes = await Appointment.deleteMany({dateAsNum: 
+            { 
+                $gte: req.body.startDate.dateAsNum,
+                $lte: req.body.endDate.dateAsNum
+            }, 
+            period: {
+                start: req.body.period.startTime,
+                end: req.body.period.endTime
+            }
+        })
+        
         res.status(200).json({mongoRes})
     } catch (error) {
         console.log(error.message)
@@ -112,9 +132,92 @@ app.put('/appointment/:id', async (req, res) => {
         const updatedBooking = await Appointment.updateOne({id: req.params.id}, {
             appointment: req.body.appointment
         })
+
         res.status(200).json(updatedBooking)
         
     } catch (error) {
         console.log(error)
     }
 })
+
+
+const acceptableDaysOfWeek = (arr) => {
+    let toReturn = []
+    for(let a = 0 ; a < arr.length ; a +=1 ) {
+        if(arr[a] === true){
+            toReturn.push(a + 1)
+        }
+    }
+    return toReturn
+}
+
+//the GET request is written as a post request because get requests can't have a body
+app.post('/appointment/admin/get', async (req, res) => {
+    try {
+        const aD = acceptableDaysOfWeek(req.body.onDaysOfWeek)
+        console.log(aD)
+
+        const allAppointments = await Appointment.find({
+                    dateAsNum: {
+                        $gte: req.body.startDate,
+                        $lte: req.body.endDate,
+                    },
+                    dayOfWeek: {
+                        $or: req.body.acceptableDaysOfWeek
+                    }
+                })
+        //allAppointments is structured as [{}, {}, {}, ...]
+        //const toSend = allAppointments.reduce((prev, current) => {
+        //        console.log(current._id)
+        //        const concurrent = {[current._id.toString()]: {
+        //            date: current.appointment.date,
+        //            period: current.appointment.period,
+        //            reservation: current.appointment.period
+        //        }}
+        //        console.log(concurrent)
+        //        console.log(prev)
+
+
+        //    
+
+        //    return {prev, concurrent}
+        //    ,
+        //    {}
+        //})
+        //console.log('\n\ntoSend:')
+        //console.log(toSend)
+
+        let toSend = {}
+
+        allAppointments.map((item, index) =>  toSend[item._id] = item   )
+
+        console.log(toSend)
+
+
+
+
+        res.status(200).json(toSend)
+
+    } catch (error) {
+        console.log(error)
+    }
+
+
+
+
+})
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
