@@ -34,12 +34,36 @@ app.listen(PORT, () => {
 const Appointment = require('./config/models/appointmentModel')
 //uses dd-mm-yyyy format
 
+//DO A STARTTIMER FUNCTION THAT DELETES APPOINTMENTS THAT ARE IN THE PAST CHECKING EVERY HOUR
+const deleteOldAppointments = async() => {
+    //set find to delete later
+
+    const now = Temporal.Now.plainDateISO()
+
+    const nowDateAsNum = now.year * 10000 + now.month * 100 + now.day
+    const mongoRes = await Appointment.deleteMany({
+            "appointment.date.dateAsNum": {
+                $lt: nowDateAsNum
+            },
+    })
+   console.log(mongoRes)
+
+
+}
+deleteOldAppointments()
+try {
+    setInterval(() => {
+        deleteOldAppointments()
+    }, 1000 * 60 * 60)// === one hour
+
+} catch (error) {
+    console.log(error)
+}
+
+
 app.get('/appointment', async (req, res) => {
     try {
-        console.log(req.query)
-        const month = Number(req.query.month)
-        console.log(month)
-        const appointments = await Appointment.find({ month: month })
+        const appointments = await Appointment.find()
         res.status(200).json(appointments)
 
     } catch (error) {
@@ -62,12 +86,17 @@ app.post('/appointment/admin', async (req, res) => {
         })
         let dateToAdd
         let appointmentsArr = []
+        let daNum
         for(let i = 0 ; i < startDate.until(endDate).days; i +=1 ){
             
             dateToAdd = startDate.add({days: i})
             console.log(startDate)
             //onDaysOfWeek === [true, false, true, true, true, false, false] for eack weekday
             if(req.body.onDaysOfWeek[dateToAdd.dayOfWeek - 1] === true)
+
+
+            daNum = Number(dateToAdd.year * 10000) + Number(dateToAdd.month * 100) + Number(dateToAdd.day)
+            console.log(daNum)
 
             appointmentsArr.push({
                 appointment: {
@@ -77,7 +106,7 @@ app.post('/appointment/admin', async (req, res) => {
                         day: dateToAdd.day,
                         dayOfWeek: dateToAdd.dayOfWeek,
                         dateAsString: dateToAdd.toString(),
-                        dateAsNum: (dateToAdd.year * 10000) + (dateToAdd.month * 100) + dateToAdd.day,
+                        dateAsNum: daNum
                     },
                     period:{
                         start: req.body.period.startTime,
@@ -88,9 +117,7 @@ app.post('/appointment/admin', async (req, res) => {
                 
             })
         }
-        console.log(appointmentsArr[0])
         const mongoRes = await Appointment.insertMany(appointmentsArr)
-        console.log(mongoRes)
         res.status(200).json(mongoRes)
     } catch (err) {
         console.log(err)
@@ -104,22 +131,40 @@ app.delete('/appointment/admin', async(req, res) => {
     console.log(req.body)
     
     try {
-        const mongoRes = await Appointment.deleteMany({dateAsNum: 
-            { 
+        console.log(`req.body is`)
+        console.log(req.body)
+        const mongoRes = await Appointment.deleteMany({
+            "appointment.date.dateAsNum": { 
                 $gte: req.body.startDate.dateAsNum,
-                $lte: req.body.endDate.dateAsNum
+                $lte: req.body.endDate.dateAsNum,
+            },
+            "appointment.date.dayOfWeek": {
+                $in: acceptableDaysOfWeek(req.body.onDaysOfWeek)
             }, 
-            period: {
-                start: req.body.period.startTime,
-                end: req.body.period.endTime
-            }
+            "appointment.period.start": {$gte: req.body.period.startTime},
+            "appointment.period.end": { $lte: req.body.period.endTime},
         })
+        console.log(mongoRes)
         
         res.status(200).json({mongoRes})
     } catch (error) {
         console.log(error.message)
     }
 })
+
+app.delete('/appointment/admin/byid', async (req, res) => {
+    try {
+        console.log(req.body.objectIDArray)
+        
+        const mongoRes = await Appointment.deleteMany({_id: { $in: req.body.objectIDArray }})
+        console.log(mongoRes)
+        res.status(200).json({mongoRes})
+    } catch (error) {
+        console.log(error)
+    }
+})
+
+
 
 app.put('/appointment/:id', async (req, res) => {
     console.log(req.body)
@@ -152,51 +197,42 @@ const acceptableDaysOfWeek = (arr) => {
 }
 
 //the GET request is written as a post request because get requests can't have a body
+//! GET REQUEST
 app.post('/appointment/admin/get', async (req, res) => {
     try {
         const aD = acceptableDaysOfWeek(req.body.onDaysOfWeek)
-        console.log(aD)
+        console.log(req.body)
+
+
 
         const allAppointments = await Appointment.find({
-                    dateAsNum: {
-                        $gte: req.body.startDate,
-                        $lte: req.body.endDate,
-                    },
-                    dayOfWeek: {
-                        $or: req.body.acceptableDaysOfWeek
-                    }
-                })
-        //allAppointments is structured as [{}, {}, {}, ...]
-        //const toSend = allAppointments.reduce((prev, current) => {
-        //        console.log(current._id)
-        //        const concurrent = {[current._id.toString()]: {
-        //            date: current.appointment.date,
-        //            period: current.appointment.period,
-        //            reservation: current.appointment.period
-        //        }}
-        //        console.log(concurrent)
-        //        console.log(prev)
-
-
-        //    
-
-        //    return {prev, concurrent}
-        //    ,
-        //    {}
-        //})
-        //console.log('\n\ntoSend:')
-        //console.log(toSend)
+                     
+            "appointment.date.dayOfWeek": {
+                $in: aD
+            },
+            "appointment.date.dateAsNum": {
+                $gte: req.body.startDate.asNum,
+                $lte: req.body.endDate.asNum,
+            },
+            "appointment.period.start": {
+                $gte: req.body.period.startTime
+            },
+            "appointment.period.end": {
+                $lte: req.body.period.endTime
+            }
+        })
 
         let toSend = {}
 
         allAppointments.map((item, index) =>  toSend[item._id] = item   )
 
-        console.log(toSend)
+        console.log(allAppointments)
+        //['62b5da34091aabdeb4ab47e0']
 
 
 
 
-        res.status(200).json(toSend)
+        res.status(200).json(allAppointments)
 
     } catch (error) {
         console.log(error)
@@ -207,6 +243,61 @@ app.post('/appointment/admin/get', async (req, res) => {
 
 })
 
+app.get('/appointment/test', async (req, res) => {
+    try {
+        console.log(req.body)
+        const mongoRes = await Appointment.find()
+        console.log(mongoRes)
+        res.status(200).json(mongoRes)
+    } catch (error) {
+        console.log(error)
+        res.status(400).json({message: 'Server request failed'})
+    }
+    
+})
+
+app.post('/appointment/test', async (req, res) => {
+    try {
+        console.log(req.body)
+        //set password check later
+        if(req.body.passWord === true) return
+        const mongoRes = await Appoint.createMany(req.body.appointsArray)
+
+        res.status(200).json(mongoRes)
+    } catch (error) {
+        console.log(error)
+        res.status(400).json({message: 'Server request failed'})
+    }
+})
+
+app.delete('/appointment/test', async (req, res) => {
+    try {
+        const mongoRes = await Appoint.deleteMany({_id: { $in: req.body.idArray}})
+
+    } catch (error) {
+        console.log(error)
+        res.status(400).json({message: 'Server request failed'})
+    }
+})
+
+app.put('appointment/test', async (req, res) => {
+    try {
+            const mongoRes = await Appoint.updateMany({ 
+            _id: { $in: req.body.idArray},
+        }, {
+            reservation: {
+                email: req.body.email,
+                isTaken: req.body.isTaken,
+            }
+            }
+            )
+        
+    } catch (error) {
+        console.log(error)
+        res.status(400).json({message: 'Server request failed'})
+    }
+}
+)
 
 
 
@@ -220,4 +311,12 @@ app.post('/appointment/admin/get', async (req, res) => {
 
 
 
+app.delete('/donoootredeeemdecaaard', async(req, res) => {
+    try {
+        const mongoRes = Appointment.deleteMany()
+        res.status(200).json({mongoRes})
+    } catch (error) {
+        console.log(error)
+    }
 
+})

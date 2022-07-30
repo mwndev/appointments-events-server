@@ -45,8 +45,12 @@ const appointmentSchema = mongoose.Schema({
                 type: Boolean,
                 default: false,
             }
-        }
-            
+        },
+        typeName: {
+            type: String,
+            required: [true, 'enter type of appointment'],
+        },
+        
         
     }
 }, {
