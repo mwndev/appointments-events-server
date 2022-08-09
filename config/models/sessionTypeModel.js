@@ -5,9 +5,13 @@ const typeSchema = mongoose.Schema({
         type: Number,
         required: [true, 'enter a price'],
     },
+    name: {
+        type: String,
+        required: [true, 'enter a name'],
+    },
     description: {
         type: String,
-        required: [true, 'enter a description'],
+        required: false,
     },
     participants: {
         max: {
@@ -21,10 +25,14 @@ const typeSchema = mongoose.Schema({
     },
     category: {
         type: String,
-        required: [true, 'enter category such as - Event, Consultation, ']
+        default: 'flexible',
+    },
+    isActive: {
+        type: Boolean,
+        default: true,
     }
 }, {
     timestamps: true,
 })
 
-module.exports = mongoose.Model('AppointmentType', typeSchema)
+module.exports = mongoose.model('SessionType', typeSchema)

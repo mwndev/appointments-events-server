@@ -9,6 +9,14 @@ const mongoose = require('mongoose')
 const connectDB = require('./config/mongodb')
 const {Temporal} = require('@js-temporal/polyfill')
 
+
+//for booking an appointment
+//uses dd-mm-yyyy format
+const Appointment = require('./config/models/appointmentModel')
+const SessionType = require('./config/models/sessionTypeModel')
+const User = require('./config/models/userModel')
+const Problem = require('./config/models/serverProblemsModel')
+
 connectDB()
 
 const PORT = process.env.EXPRESS_PORT
@@ -21,6 +29,17 @@ process.stdin.on('data', data => {
     console.log(`this program does not take in shell arguments.`)
 })
 
+//session type ids
+let sTIDs
+
+const updateSessionTypes = async () => {
+    sessionTypeArray = await SessionType.find()
+
+    let idArray = []
+    sessionTypeArray.map(item => idArray.push(item._id))
+
+    sTIDs = idArray
+}
 
 
 
@@ -30,13 +49,7 @@ app.listen(PORT, () => {
 })
 
 
-//for booking an appointment
-const Appointment = require('./config/models/appointmentModel')
-//uses dd-mm-yyyy format
-
-//DO A STARTTIMER FUNCTION THAT DELETES APPOINTMENTS THAT ARE IN THE PAST CHECKING EVERY HOUR
 const deleteOldAppointments = async() => {
-    //set find to delete later
 
     const now = Temporal.Now.plainDateISO()
 
@@ -224,13 +237,7 @@ app.post('/appointment/admin/get', async (req, res) => {
 
         let toSend = {}
 
-        allAppointments.map((item, index) =>  toSend[item._id] = item   )
-
-        console.log(allAppointments)
-        //['62b5da34091aabdeb4ab47e0']
-
-
-
+        allAppointments.map((item, index) =>  toSend[item._id] = item)
 
         res.status(200).json(allAppointments)
 
@@ -243,80 +250,130 @@ app.post('/appointment/admin/get', async (req, res) => {
 
 })
 
-app.get('/appointment/test', async (req, res) => {
+app.get('/sessiontypes', async (req, res) => {
+    try {
+
+        const allSessionTypes = await SessionType.find()
+
+        res.status(200).json(allSessionTypes)
+
+    } catch (error) {
+        console.log(error)
+    }
+})
+
+app.post('/sessiontypes', async (req, res) => {
     try {
         console.log(req.body)
-        const mongoRes = await Appointment.find()
-        console.log(mongoRes)
-        res.status(200).json(mongoRes)
+
+        const newType = req.body
+
+        const mongoRes = await SessionType.create(newType)
+
+        res.status(200).json({mongoRes})
+
+        updateSessionTypes()
     } catch (error) {
+        res.status(400).json({error: error})
         console.log(error)
-        res.status(400).json({message: 'Server request failed'})
     }
-    
 })
 
-app.post('/appointment/test', async (req, res) => {
+//deletes by id
+app.delete('/sessiontypes', async(req, res) => {
     try {
         console.log(req.body)
-        //set password check later
-        if(req.body.passWord === true) return
-        const mongoRes = await Appoint.createMany(req.body.appointsArray)
 
-        res.status(200).json(mongoRes)
+        const mongoRes = await SessionType.delete({_id: req.body.id})
+
+        res.status(200).json({mongoRes})
+
+        updateSessionTypes()
     } catch (error) {
+        res.status(400).json({error: error})
         console.log(error)
-        res.status(400).json({message: 'Server request failed'})
+
     }
 })
 
-app.delete('/appointment/test', async (req, res) => {
+const emailIsAvailable = async(email) => {
     try {
-        const mongoRes = await Appoint.deleteMany({_id: { $in: req.body.idArray}})
+        const check = await User.find({email: email})
+        if(check.length < 1) return true
+
+        else return false
 
     } catch (error) {
         console.log(error)
-        res.status(400).json({message: 'Server request failed'})
-    }
-})
-
-app.put('appointment/test', async (req, res) => {
-    try {
-            const mongoRes = await Appoint.updateMany({ 
-            _id: { $in: req.body.idArray},
-        }, {
-            reservation: {
-                email: req.body.email,
-                isTaken: req.body.isTaken,
-            }
-            }
-            )
-        
-    } catch (error) {
-        console.log(error)
-        res.status(400).json({message: 'Server request failed'})
     }
 }
-)
 
-
-
-
-
-
-
-
-
-
-
-
-
-app.delete('/donoootredeeemdecaaard', async(req, res) => {
+app.post('/register', async(req, res) => {
     try {
-        const mongoRes = Appointment.deleteMany()
-        res.status(200).json({mongoRes})
-    } catch (error) {
-        console.log(error)
-    }
+        console.log(req.body)
 
+        if(!emailIsAvailable){
+            res.status(200).json({emailIsTaken: true})
+            return
+        }
+
+        //send confirmation email to email adress via server, if account is not confirmed after 1 day delete account and email
+        //TODO do regex validation here too
+
+        const mongoRes = await User.create({
+            email: req.body.email,
+            password: req.body.password,
+            firstName: req.body.firstName,
+            lastName: req.body.lastName,
+
+        })
+
+        res.status(200).json({mongoRes})
+
+        updateSessionTypes()
+    } catch (error) {
+        res.status(400).json({error: error})
+        console.log(error)
+
+    }
+})
+
+
+app.post('/login', async(req, res) => {
+    try {
+        console.log(req.body)
+
+        res.status(400).json({message: 'please enter a valid email', validEmail: false})
+        //TODO encrypt
+        const mongoRes = await User.find({name: req.body.username, password: req.body.password})
+
+        if(mongoRes === []){
+            res.status(400).json({authenticated: false})
+            return
+        }
+
+        if(mongoRes.length > 1){
+            res.status(400).json({message: 'server error. please call Zaneta on the phone to book an appointment', authenticated: false})
+
+            const problemRes = await Problem.create({
+                description: 'only one user should exist per email',
+                details: {
+                    query:  `User.find({name: ${req.body.username}})`,
+                    response: mongoRes,
+                }
+            })
+            console.log(mongoRes)
+            return
+        }
+
+        const userData = {...mongoRes, password: 'xdxdxddddd'}
+
+        res.status(200).json({authenticated: true, userData: userData})
+
+        updateSessionTypes()
+    } catch (error) {
+        res.status(400).json({error: error})
+        console.log(error)
+
+    }
 })

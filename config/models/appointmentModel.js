@@ -41,12 +41,17 @@ const appointmentSchema = mongoose.Schema({
                 type: String,
                 default: null,
             },
-            isTaken: {
-                type: Boolean,
-                default: false,
+            // if (numOfGuests <= sessionType.participants.max) { do thing }
+            numOfGuests: {
+                type: Number,
+                default: 0,
+            },
+            sessionType: {
+                type: String,
             }
         },
-        typeName: {
+        //if arrayOfCategories.contains(req.body.category){ do thing }
+        category: {
             type: String,
             required: [true, 'enter type of appointment'],
         },
