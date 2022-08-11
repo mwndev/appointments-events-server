@@ -83,6 +83,35 @@ app.get('/appointment', async (req, res) => {
         console.log(error)
     }
 })
+app.put('/appointment/user', async (req, res) => {
+    try {
+        console.log(req.body)
+
+        const selectedAppointment = await Appointment.find({_id: req.body.appointmentID})
+
+        const selectedSessionType = await SessionType.find({_id: req.body.sessionTypeID})
+
+        const user = await User.find({_id: req.body.userID})
+
+        if(selectedAppointment === []){
+            res.status(404).json({message: 'appointment does not exist'})
+            return
+        }
+
+        const updatedAppointment = await Appointment.updateOne({_id: req.body.appointmentID}, {
+            "appointment.reservation.email": user.email,
+            "appointment.reservation.sessionType": selectedSessionType._id,
+            "appointment.reservation.userNotes": req.body.userNotes,
+        })
+
+
+    } catch (error) {
+        console.log(error)
+        res.status(400).json({error: error})
+    }
+})
+
+
 
 app.post('/appointment/admin', async (req, res) => {
     try {
@@ -343,7 +372,7 @@ app.post('/login', async(req, res) => {
     try {
         console.log(req.body)
 
-        res.status(400).json({message: 'please enter a valid email', validEmail: false})
+        if(false) res.status(400).json({message: 'please enter a valid email', validEmail: false})
         //TODO encrypt
         const mongoRes = await User.find({name: req.body.username, password: req.body.password})
 
@@ -352,21 +381,9 @@ app.post('/login', async(req, res) => {
             return
         }
 
-        if(mongoRes.length > 1){
-            res.status(400).json({message: 'server error. please call Zaneta on the phone to book an appointment', authenticated: false})
+        
 
-            const problemRes = await Problem.create({
-                description: 'only one user should exist per email',
-                details: {
-                    query:  `User.find({name: ${req.body.username}})`,
-                    response: mongoRes,
-                }
-            })
-            console.log(mongoRes)
-            return
-        }
-
-        const userData = {...mongoRes, password: 'xdxdxddddd'}
+        const userData = {...mongoRes, password: 'unencrypted password XDD'}
 
         res.status(200).json({authenticated: true, userData: userData})
 
