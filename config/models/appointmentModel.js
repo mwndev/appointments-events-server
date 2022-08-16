@@ -52,6 +52,7 @@ const appointmentSchema = mongoose.Schema({
             }, 
             userNotes: {
                 type: String,
+                default: ''
             },
         },
         

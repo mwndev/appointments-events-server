@@ -10,12 +10,15 @@ const connectDB = require('./config/mongodb')
 const {Temporal} = require('@js-temporal/polyfill')
 
 
+//!TODO date.dateAsNum seems to be broken
+
 //for booking an appointment
 //uses dd-mm-yyyy format
 const Appointment = require('./config/models/appointmentModel')
 const SessionType = require('./config/models/sessionTypeModel')
 const User = require('./config/models/userModel')
 const Problem = require('./config/models/serverProblemsModel')
+const { use } = require('passport')
 
 connectDB()
 
@@ -85,24 +88,34 @@ app.get('/appointment', async (req, res) => {
 })
 app.put('/appointment/user', async (req, res) => {
     try {
-        console.log(req.body)
+        const b = req.body
 
-        const selectedAppointment = await Appointment.find({_id: req.body.appointmentID})
+        const appointmentExists = await Appointment.exists({_id: b.appointment._id})
 
-        const selectedSessionType = await SessionType.find({_id: req.body.sessionTypeID})
+        console.log(selectedAppointment._id)
 
-        const user = await User.find({_id: req.body.userID})
+        const sTExists = await SessionType.exists({_id: b.sessionType._id})
+        
+
+        console.log(selectedSessionType)
+
+        const userExists = await User.exists(b.user._id)
+        const user = await User.findById(b.user._id)
+        
 
         if(selectedAppointment === []){
             res.status(404).json({message: 'appointment does not exist'})
             return
         }
 
-        const updatedAppointment = await Appointment.updateOne({_id: req.body.appointmentID}, {
-            "appointment.reservation.email": user.email,
-            "appointment.reservation.sessionType": selectedSessionType._id,
-            "appointment.reservation.userNotes": req.body.userNotes,
+        const updatedAppointment = await Appointment.updateOne({id: selectedAppointment._id}, {
+            "appointment.reservation.numOfGuests": b.sessionType,
+            "appointment.reservation.price": b.sessionType.price,
+            "appointment.reservation.user": b.user.email,
+            "appointment.reservation.sessionType": b.sessionType._id,
+            "appointment.reservation.userNotes": b.notes,
         })
+        console.log(updatedAppointment)
 
 
     } catch (error) {
@@ -313,7 +326,7 @@ app.delete('/sessiontypes', async(req, res) => {
     try {
         console.log(req.body)
 
-        const mongoRes = await SessionType.delete({_id: req.body.id})
+        const mongoRes = await SessionType.deleteOne({_id: req.body.id})
 
         res.status(200).json({mongoRes})
 
@@ -372,20 +385,19 @@ app.post('/login', async(req, res) => {
     try {
         console.log(req.body)
 
-        if(false) res.status(400).json({message: 'please enter a valid email', validEmail: false})
         //TODO encrypt
-        const mongoRes = await User.find({name: req.body.username, password: req.body.password})
+        const user = await User.findOne({email: req.body.email, password: req.body.password})
 
-        if(mongoRes === []){
+        if(user === null){
             res.status(400).json({authenticated: false})
             return
         }
 
         
 
-        const userData = {...mongoRes, password: 'unencrypted password XDD'}
 
-        res.status(200).json({authenticated: true, userData: userData})
+        
+        res.status(200).json({authenticated: true, userData: user._id})
 
         updateSessionTypes()
     } catch (error) {
