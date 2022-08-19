@@ -4,10 +4,11 @@ const app = express()
 const cors = require('cors')
 const pool = require('./pgdb')
 const Redis = require('redis')
-const passport = require('passport')
+const bcrypt = require('bcrypt')
 const mongoose = require('mongoose')
 const connectDB = require('./config/mongodb')
 const {Temporal} = require('@js-temporal/polyfill')
+
 
 
 //!TODO date.dateAsNum seems to be broken
@@ -18,7 +19,6 @@ const Appointment = require('./config/models/appointmentModel')
 const SessionType = require('./config/models/sessionTypeModel')
 const User = require('./config/models/userModel')
 const Problem = require('./config/models/serverProblemsModel')
-const { use } = require('passport')
 
 connectDB()
 
@@ -58,7 +58,7 @@ const deleteOldAppointments = async() => {
 
     const nowDateAsNum = now.year * 10000 + now.month * 100 + now.day
     const mongoRes = await Appointment.deleteMany({
-            "appointment.date.dateAsNum": {
+            "date.dateAsNum": {
                 $lt: nowDateAsNum
             },
     })
@@ -90,30 +90,33 @@ app.put('/appointment/user', async (req, res) => {
     try {
         const b = req.body
 
-        const appointmentExists = await Appointment.exists({_id: b.appointment._id})
+        const selectedAppointment = await Appointment.findById( b.appointment._id )
 
         console.log(selectedAppointment._id)
 
-        const sTExists = await SessionType.exists({_id: b.sessionType._id})
+        const selectedSessionType = await SessionType.findById( b.sessionType._id )
         
 
         console.log(selectedSessionType)
 
-        const userExists = await User.exists(b.user._id)
         const user = await User.findById(b.user._id)
+
+        if(!selectedAppointment) return res.status(404).json({ message: 'please select a valid appointment'})
+
+        if(!selectedSessionType) return res.status(404).json({ message: 'please select a valid appointment type'})
+
+        if(!user) return res.status(404).json({ message: 'please log in to book an appointment'})
+
+
         
 
-        if(selectedAppointment === []){
-            res.status(404).json({message: 'appointment does not exist'})
-            return
-        }
 
         const updatedAppointment = await Appointment.updateOne({id: selectedAppointment._id}, {
-            "appointment.reservation.numOfGuests": b.sessionType,
-            "appointment.reservation.price": b.sessionType.price,
-            "appointment.reservation.user": b.user.email,
-            "appointment.reservation.sessionType": b.sessionType._id,
-            "appointment.reservation.userNotes": b.notes,
+            "reservation.numOfGuests": b.sessionType,
+            "reservation.price": b.sessionType.price,
+            "reservation.user": b.user.email,
+            "reservation.sessionType": b.sessionType._id,
+            "reservation.userNotes": b.notes,
         })
         console.log(updatedAppointment)
 
@@ -154,7 +157,6 @@ app.post('/appointment/admin', async (req, res) => {
             console.log(daNum)
 
             appointmentsArr.push({
-                appointment: {
                     date: {
                         year: dateToAdd.year,
                         month: dateToAdd.month,
@@ -168,7 +170,6 @@ app.post('/appointment/admin', async (req, res) => {
                         end: req.body.period.endTime,
                     },
                     //reservation: {} is set in different put
-                }
                 
             })
         }
@@ -189,15 +190,15 @@ app.delete('/appointment/admin', async(req, res) => {
         console.log(`req.body is`)
         console.log(req.body)
         const mongoRes = await Appointment.deleteMany({
-            "appointment.date.dateAsNum": { 
+            "date.dateAsNum": { 
                 $gte: req.body.startDate.dateAsNum,
                 $lte: req.body.endDate.dateAsNum,
             },
-            "appointment.date.dayOfWeek": {
+            "date.dayOfWeek": {
                 $in: acceptableDaysOfWeek(req.body.onDaysOfWeek)
             }, 
-            "appointment.period.start": {$gte: req.body.period.startTime},
-            "appointment.period.end": { $lte: req.body.period.endTime},
+            "period.start": {$gte: req.body.period.startTime},
+            "period.end": { $lte: req.body.period.endTime},
         })
         console.log(mongoRes)
         
@@ -262,17 +263,17 @@ app.post('/appointment/admin/get', async (req, res) => {
 
         const allAppointments = await Appointment.find({
                      
-            "appointment.date.dayOfWeek": {
+            "date.dayOfWeek": {
                 $in: aD
             },
-            "appointment.date.dateAsNum": {
+            "date.dateAsNum": {
                 $gte: req.body.startDate.asNum,
                 $lte: req.body.endDate.asNum,
             },
-            "appointment.period.start": {
+            "period.start": {
                 $gte: req.body.period.startTime
             },
-            "appointment.period.end": {
+            "period.end": {
                 $lte: req.body.period.endTime
             }
         })
@@ -340,8 +341,8 @@ app.delete('/sessiontypes', async(req, res) => {
 
 const emailIsAvailable = async(email) => {
     try {
-        const check = await User.find({email: email})
-        if(check.length < 1) return true
+        const check = await User.findOne({email: email})
+        if(check === null) return true
 
         else return false
 
@@ -362,9 +363,16 @@ app.post('/register', async(req, res) => {
         //send confirmation email to email adress via server, if account is not confirmed after 1 day delete account and email
         //TODO do regex validation here too
 
+        const salt = await bcrypt.genSalt()
+        const hashedPassword = await bcrypt.hash(req.body.password, salt)
+
+        console.log(salt)
+        console.log(hashedPassword)
+
+
         const mongoRes = await User.create({
             email: req.body.email,
-            password: req.body.password,
+            password: hashedPassword,
             firstName: req.body.firstName,
             lastName: req.body.lastName,
 
@@ -386,20 +394,16 @@ app.post('/login', async(req, res) => {
         console.log(req.body)
 
         //TODO encrypt
-        const user = await User.findOne({email: req.body.email, password: req.body.password})
+        const user = await User.findOne({email: req.body.email})
 
-        if(user === null){
+        if( user === null || false === await bcrypt.compare(req.body.password, user.password) ){
             res.status(400).json({authenticated: false})
             return
         }
 
         
+        res.status(200).json({authenticated: true, userData: {firstName: user.firstName, lastName: user.lastName, id: user._id, email: user.email}})
 
-
-        
-        res.status(200).json({authenticated: true, userData: user._id})
-
-        updateSessionTypes()
     } catch (error) {
         res.status(400).json({error: error})
         console.log(error)

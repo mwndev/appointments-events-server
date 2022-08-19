@@ -1,8 +1,6 @@
 const mongoose = require('mongoose')
 
 const appointmentSchema = mongoose.Schema({
-    appointment: {
-        
         date: {
             year: {
                 type: Number,
@@ -56,9 +54,6 @@ const appointmentSchema = mongoose.Schema({
             },
         },
         
-        
-        
-    }
 }, {
     timestamps: true,
 })
