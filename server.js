@@ -32,6 +32,10 @@ const PORT = process.env.EXPRESS_PORT
 
 app.use(cors())
 app.use(express.json())
+
+app.listen(PORT, () => {
+    console.log(`listening on port ${PORT}`)
+})
  
 
 process.stdin.on('data', data => {
@@ -61,12 +65,10 @@ const deleteOldAppointments = async() => {
 
 
 }
-
 deleteOldAppointments()
 
 const deleteUnconfirmedUsers = async () => {
     const unconfirmedUsers = await User.find({ confirmed: false })
-    console.log(unconfirmedUsers)
 
     const now = Temporal.Now.plainDateISO()
 
@@ -90,7 +92,6 @@ try {
     console.log(error)
 }
 
-deleteUnconfirmedUsers()
 
 
 app.get('/appointment', async (req, res) => {
