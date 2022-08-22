@@ -1,7 +1,9 @@
 const nodemailer = require('nodemailer')
 
-const main = async () => {
-    const transporter = await nodemailer.createTransport({
+const thisURL = 'http://localhost:5040'
+
+const mail = async (destination, subject, html) => {
+    const transporter = nodemailer.createTransport({
         service: 'Hotmail',
         auth: {
             user: 'nodemaimer@outlook.com',
@@ -12,9 +14,9 @@ const main = async () => {
 
     const options = {
         from: 'nodemaimer@outlook.com',
-        to: 'martinwiederaan@gmail.com',
-        subject: 'hi ho hiiii',
-        text: 'my man'
+        to: destination,
+        subject: subject,
+        html: html,
     }
 
     transporter.sendMail(options, (info, error) => {
@@ -22,5 +24,8 @@ const main = async () => {
         console.log(`Sent ${info.response}`)
     })
 
+
 }
 
+
+module.exports = {mail, thisURL}

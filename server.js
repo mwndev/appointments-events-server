@@ -8,6 +8,10 @@ const bcrypt = require('bcrypt')
 const mongoose = require('mongoose')
 const connectDB = require('./config/mongodb')
 const {Temporal} = require('@js-temporal/polyfill')
+//HTTPS
+//FINISH OTHER PAGES
+//USER DASHBOARD
+//CLEANUP
 
 
 
@@ -18,7 +22,9 @@ const {Temporal} = require('@js-temporal/polyfill')
 const Appointment = require('./config/models/appointmentModel')
 const SessionType = require('./config/models/sessionTypeModel')
 const User = require('./config/models/userModel')
+const Token = require('./config/models/tokenModel')
 const Problem = require('./config/models/serverProblemsModel')
+const { mail, thisURL } = require('./config/mailer')
 
 connectDB()
 
@@ -32,24 +38,6 @@ process.stdin.on('data', data => {
     console.log(`this program does not take in shell arguments.`)
 })
 
-//session type ids
-let sTIDs
-
-const updateSessionTypes = async () => {
-    sessionTypeArray = await SessionType.find()
-
-    let idArray = []
-    sessionTypeArray.map(item => idArray.push(item._id))
-
-    sTIDs = idArray
-}
-
-
-
-
-app.listen(PORT, () => {
-    console.log(`listening on port ${PORT}`)
-})
 
 
 const deleteOldAppointments = async() => {
@@ -62,19 +50,47 @@ const deleteOldAppointments = async() => {
                 $lt: nowDateAsNum
             },
     })
-   console.log(mongoRes)
+
+
+    console.log(`
+        Deleting past appointments...\n
+        Acknowledged: ${mongoRes.acknowledged}\n
+        DeletedCount: ${mongoRes.deletedCount}\n\n
+    `)
+    
 
 
 }
+
 deleteOldAppointments()
+
+const deleteUnconfirmedUsers = async () => {
+    const unconfirmedUsers = await User.find({ confirmed: false })
+    console.log(unconfirmedUsers)
+
+    const now = Temporal.Now.plainDateISO()
+
+    unconfirmedUsers.map((user, index) => {
+
+        const daysSinceCreation = now.since(Temporal.PlainDate.from(user.createdAt))
+        console.log(daysSinceCreation)
+    })
+
+
+}
+deleteUnconfirmedUsers()
+
 try {
     setInterval(() => {
         deleteOldAppointments()
+        deleteUnconfirmedUsers()
     }, 1000 * 60 * 60)// === one hour
 
 } catch (error) {
     console.log(error)
 }
+
+deleteUnconfirmedUsers()
 
 
 app.get('/appointment', async (req, res) => {
@@ -86,6 +102,21 @@ app.get('/appointment', async (req, res) => {
         console.log(error)
     }
 })
+
+app.get('/appointment/user/:id', async (req, res) => {
+    try {
+        const appointments = await Appointment.find({"reservation.userID": req.params.id})
+        console.log(appointments)
+
+        res.status(200).json(appointments)
+
+    } catch (error) {
+        res.status(400)
+        console.log(error)
+    }
+})
+
+
 app.put('/appointment/user', async (req, res) => {
     try {
         const b = req.body
@@ -99,7 +130,7 @@ app.put('/appointment/user', async (req, res) => {
 
         console.log(selectedSessionType)
 
-        const user = await User.findById(b.user._id)
+        const user = await User.findById(b.user.id)
 
         if(!selectedAppointment) return res.status(404).json({ message: 'please select a valid appointment'})
 
@@ -112,10 +143,11 @@ app.put('/appointment/user', async (req, res) => {
 
 
         const updatedAppointment = await Appointment.updateOne({id: selectedAppointment._id}, {
-            "reservation.numOfGuests": b.sessionType,
+            "reservation.numOfGuests": b.sessionType.participants.max,
             "reservation.price": b.sessionType.price,
-            "reservation.user": b.user.email,
-            "reservation.sessionType": b.sessionType._id,
+            "reservation.userID": b.user.id,
+            "reservation.sessionTypeID": b.sessionType._id,
+            "reservation.sessionTypeName": b.sessionType.name,
             "reservation.userNotes": b.notes,
         })
         console.log(updatedAppointment)
@@ -164,8 +196,7 @@ app.post('/appointment/admin', async (req, res) => {
                         dayOfWeek: dateToAdd.dayOfWeek,
                         dateAsString: dateToAdd.toString(),
                         dateAsNum: daNum
-                    },
-                    period:{
+                    }, period:{
                         start: req.body.period.startTime,
                         end: req.body.period.endTime,
                     },
@@ -342,6 +373,7 @@ app.delete('/sessiontypes', async(req, res) => {
 const emailIsAvailable = async(email) => {
     try {
         const check = await User.findOne({email: email})
+        console.log(check)
         if(check === null) return true
 
         else return false
@@ -353,9 +385,13 @@ const emailIsAvailable = async(email) => {
 
 app.post('/register', async(req, res) => {
     try {
-        console.log(req.body)
+        console.log('register registered')
+        const b = req.body
 
-        if(!emailIsAvailable){
+        const eIA =  await emailIsAvailable(b.email)
+        
+        if(!eIA){
+            console.log('not creating user')
             res.status(200).json({emailIsTaken: true})
             return
         }
@@ -366,11 +402,9 @@ app.post('/register', async(req, res) => {
         const salt = await bcrypt.genSalt()
         const hashedPassword = await bcrypt.hash(req.body.password, salt)
 
-        console.log(salt)
-        console.log(hashedPassword)
 
 
-        const mongoRes = await User.create({
+        const newUser = await User.create({
             email: req.body.email,
             password: hashedPassword,
             firstName: req.body.firstName,
@@ -378,7 +412,18 @@ app.post('/register', async(req, res) => {
 
         })
 
-        res.status(200).json({mongoRes})
+        const newToken = await Token.create({userID: newUser._id})
+        console.log('new token is')
+        console.log(newToken)
+
+
+
+        await mail(b.email, 'User Registration', `
+             <a href=${thisURL}/token/${newToken._id} >Click here to finish your registration</a>
+        `)
+
+        res.status(200).json({emailIsTaken: false, newUser: newUser})
+
 
         updateSessionTypes()
     } catch (error) {
@@ -391,7 +436,6 @@ app.post('/register', async(req, res) => {
 
 app.post('/login', async(req, res) => {
     try {
-        console.log(req.body)
 
         //TODO encrypt
         const user = await User.findOne({email: req.body.email})
@@ -408,5 +452,34 @@ app.post('/login', async(req, res) => {
         res.status(400).json({error: error})
         console.log(error)
 
+    }
+})
+
+
+app.get('/token/:tokenid', async(req, res) => {
+    try {
+
+        const token = await Token.findByIdAndDelete(req.params.tokenid)
+
+
+        if( token !== null ) {
+            const mR = await User.updateOne({_id: token.userID}, {
+                confirmed: true
+            })
+            console.log(mR)
+        }
+        
+        res.status(302).redirect('http://localhost:3000/user')
+    } catch (error) {
+        console.log(error) 
+    }
+})
+app.delete('/users/all', async(req, res) => {
+    try {
+        const mongoRes = await User.deleteMany()
+        console.log(mongoRes)
+        res.status(200).json(mongoRes)
+    } catch (error) {
+        console.log(error)
     }
 })

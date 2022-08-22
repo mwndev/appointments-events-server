@@ -35,10 +35,11 @@ const appointmentSchema = mongoose.Schema({
             },
         },
         reservation: {
-            email: {
+            userID: {
                 type: String,
                 default: '',
             },
+
             // if (numOfGuests <= sessionType.participants.max) { do thing }
             numOfGuests: {
                 type: Number,
@@ -47,7 +48,11 @@ const appointmentSchema = mongoose.Schema({
             sessionTypeID: {
                 type: String,
                 default: '',
-            }, 
+            },
+            sessionTypeName: {
+                type: String,
+                default: '',
+            },
             userNotes: {
                 type: String,
                 default: ''
