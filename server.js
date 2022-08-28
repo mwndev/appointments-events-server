@@ -7,11 +7,12 @@ const Redis = require('redis')
 const bcrypt = require('bcrypt')
 const mongoose = require('mongoose')
 const connectDB = require('./config/mongodb')
-const {Temporal} = require('@js-temporal/polyfill')
+const {Temporal, toTemporalInstant} = require('@js-temporal/polyfill')
 //HTTPS
 //FINISH OTHER PAGES
 //USER DASHBOARD
 //CLEANUP
+//add admin verification
 
 
 
@@ -25,6 +26,7 @@ const User = require('./config/models/userModel')
 const Token = require('./config/models/tokenModel')
 const Problem = require('./config/models/serverProblemsModel')
 const { mail, thisURL } = require('./config/mailer')
+const { temporalDateToNum, toTemporalDateTime } = require('./helperfunctions')
 
 connectDB()
 
@@ -44,6 +46,9 @@ process.stdin.on('data', data => {
 
 
 
+
+
+
 const deleteOldAppointments = async() => {
 
     const now = Temporal.Now.plainDateISO()
@@ -51,46 +56,87 @@ const deleteOldAppointments = async() => {
     const nowDateAsNum = now.year * 10000 + now.month * 100 + now.day
     const mongoRes = await Appointment.deleteMany({
             "date.dateAsNum": {
-                $lt: nowDateAsNum
+                $lt: nowDateAsNum,
             },
     })
 
 
-    console.log(`
-        Deleting past appointments...\n
-        Acknowledged: ${mongoRes.acknowledged}\n
-        DeletedCount: ${mongoRes.deletedCount}\n\n
-    `)
+    console.log(`\nDeleting past appointments...\nAcknowledged: ${mongoRes.acknowledged}\nDeletedCount: ${mongoRes.deletedCount}\n`)
     
 
 
 }
 deleteOldAppointments()
 
-const deleteUnconfirmedUsers = async () => {
-    const unconfirmedUsers = await User.find({ confirmed: false })
 
-    const now = Temporal.Now.plainDateISO()
 
-    unconfirmedUsers.map((user, index) => {
+const deleteUnconfirmedUsersAndTokens = async () => {
+    try {
 
-        const daysSinceCreation = now.since(Temporal.PlainDate.from(user.createdAt))
-        console.log(daysSinceCreation)
-    })
+        const now = Temporal.Now.plainDateTimeISO()
+
+        const unconfirmedUsers = await User.find({ confirmed: false })
+
+        console.log(`number of unconfirmed users: ${unconfirmedUsers.length}`)
+
+        /*I'm making a non-filtered find to get the Tokens collection because:
+        
+        I don't expect the number of tokens to ever be high enough to warrant working out another custom createdAt property*/
+
+        const tokens = await Token.find()
+
+        const expiredTokens = tokens.filter(item => temporalDateToNum(now) - item.numDateCreatedAt > 7)
+        
+        console.log(`number of expired tokens: ${expiredTokens.length}`)
+
+
+
+        if(unconfirmedUsers.length === 0) { 
+            console.log('no expired users found')
+            return 
+        }
+
+
+        const date = toTemporalDateTime(createdAt)
+
+        let expiredUserIDs = []
+
+        unconfirmedUsers.map((user, index) => {
+            //I should just have added custom temporal timestamps tbh
+            const timeSinceCreation = now.until(toTemporalDateTime(user.createdAt))
+            if(timeSinceCreation.days < 8) return
+
+            expiredUserIDs.push(user._id)
+        })
+
+        const deletedUsers = await User.deleteMany({_id: { $in: expiredUserIDs }})
+
+        console.log(`Deletion mongoRes:`)
+        console.log(deletedUsers)
+
+    } catch (error) {
+        
+    }
 
 
 }
-deleteUnconfirmedUsers()
+deleteUnconfirmedUsersAndTokens()
 
 try {
     setInterval(() => {
         deleteOldAppointments()
-        deleteUnconfirmedUsers()
+        deleteUnconfirmedUsersAndTokens()
     }, 1000 * 60 * 60)// === one hour
 
 } catch (error) {
     console.log(error)
 }
+
+
+app.post('/problem', async(req, res) => {
+    const b = req.body
+    const p = await Problem.create(b)
+})
 
 
 
@@ -164,7 +210,8 @@ app.put('/appointment/user', async (req, res) => {
 
 app.post('/appointment/admin', async (req, res) => {
     try {
-        console.log(req.body)
+
+
         const startDate = Temporal.PlainDate.from({
             year: req.body.startDate.year,
             month: req.body.startDate.month,
@@ -175,9 +222,11 @@ app.post('/appointment/admin', async (req, res) => {
             month: req.body.endDate.month,
             day: req.body.endDate.day,
         })
+
+
         let dateToAdd
         let appointmentsArr = []
-        let daNum
+        let daNumm
         for(let i = 0 ; i < startDate.until(endDate).days; i +=1 ){
             
             dateToAdd = startDate.add({days: i})
@@ -186,8 +235,8 @@ app.post('/appointment/admin', async (req, res) => {
             if(req.body.onDaysOfWeek[dateToAdd.dayOfWeek - 1] === true)
 
 
-            daNum = Number(dateToAdd.year * 10000) + Number(dateToAdd.month * 100) + Number(dateToAdd.day)
-            console.log(daNum)
+            daNumm = temporalDateToNum(dateToAdd)
+            console.log(daNumm)
 
             appointmentsArr.push({
                     date: {
@@ -196,7 +245,7 @@ app.post('/appointment/admin', async (req, res) => {
                         day: dateToAdd.day,
                         dayOfWeek: dateToAdd.dayOfWeek,
                         dateAsString: dateToAdd.toString(),
-                        dateAsNum: daNum
+                        dateAsNum: daNumm,
                     }, period:{
                         start: req.body.period.startTime,
                         end: req.body.period.endTime,
@@ -205,8 +254,11 @@ app.post('/appointment/admin', async (req, res) => {
                 
             })
         }
+
         const mongoRes = await Appointment.insertMany(appointmentsArr)
         res.status(200).json(mongoRes)
+
+
     } catch (err) {
         console.log(err)
         
@@ -261,6 +313,7 @@ app.put('/appointment/:id', async (req, res) => {
         const existingBooking = await Appointment.findById(req.params.id)
         if (!existingBooking) {
             res.status(400).json({ message: 'booking does not exist' })
+            return
         }
         const updatedBooking = await Appointment.updateOne({id: req.params.id}, {
             appointment: req.body.appointment
@@ -347,7 +400,6 @@ app.post('/sessiontypes', async (req, res) => {
 
         res.status(200).json({mongoRes})
 
-        updateSessionTypes()
     } catch (error) {
         res.status(400).json({error: error})
         console.log(error)
@@ -363,7 +415,6 @@ app.delete('/sessiontypes', async(req, res) => {
 
         res.status(200).json({mongoRes})
 
-        updateSessionTypes()
     } catch (error) {
         res.status(400).json({error: error})
         console.log(error)
@@ -413,7 +464,7 @@ app.post('/register', async(req, res) => {
 
         })
 
-        const newToken = await Token.create({userID: newUser._id})
+        const newToken = await Token.create({userID: newUser._id, for: 'confirmUser'})
         console.log('new token is')
         console.log(newToken)
 
@@ -426,7 +477,6 @@ app.post('/register', async(req, res) => {
         res.status(200).json({emailIsTaken: false, newUser: newUser})
 
 
-        updateSessionTypes()
     } catch (error) {
         res.status(400).json({error: error})
         console.log(error)
@@ -456,12 +506,80 @@ app.post('/login', async(req, res) => {
     }
 })
 
+app.post('/forgot/', async(req, res) => {
+    try {
+        const b = req.body
 
+        console.log(req.ip)
+
+        console.log(b)
+
+        const user = await User.findOne({email: b.email})
+
+        console.log(user)
+
+        if (user === null) return res.status(400).json({userFound: false})
+
+        const oldTokens = await Token.deleteMany({userID: user._id, for: 'forgotPassword'})
+
+        if (oldTokens.deletedCount > 1) await Problem.create({ description: 'multiple forgot password tokens for one user', details: { mongoRes: oldTokens, user: user._id } })
+
+        const newToken = await Token.create({ userID: user._id, for: 'forgotPassword' })
+
+        await mail(b.email, 'Reset Password', `
+             <a href=${thisURL}/forgot/${newToken._id} >Click here to reset your password</a>
+             <div>Didn't make this request?</div>
+             <a href=${thisURL}/report/${b.ip}>Click here</a>
+        `)
+
+        res.status(200).json({userFound: true})
+
+    } catch (error) {
+        console.log(error) 
+    }
+})
+
+app.get('/forgot/:tokenid', async(req, res) => {
+    try {
+        const token = await Token.findById(req.params.tokenid)
+
+        console.log(token)
+
+        res.status(200).redirect(`http://localhost:3000/newpassword/${token._id}`)
+
+    } catch (error) {
+        console.log(error)
+    }
+})
+
+app.post('/forgot/:tokenid', async(req, res) => {
+    try {
+        const token = await Token.findByIdAndDelete(req.params.tokenid)
+
+        if(token === null) return res.status(400).json({msg: 'Your email link has expired. Start another request to reset your password from the login page?'})
+
+        const salt = await bcrypt.genSalt()
+        const hashedPassword = await bcrypt.hash(req.body.password, salt)
+
+        const updated = await User.findByIdAndUpdate(token.userID, { password: hashedPassword })
+        console.log(updated)
+
+        //Problem.create({description: 'multiple forgot password tokens existed for user', details: {mongoRes: updated, token: token}})
+
+        res.status(302).json(updated)
+
+
+    } catch (error) {
+        console.log(error)
+    }
+})
+
+
+//has to ge a GET because it's pasted into the URL by email <a> tag
 app.get('/token/:tokenid', async(req, res) => {
     try {
 
         const token = await Token.findByIdAndDelete(req.params.tokenid)
-
 
         if( token !== null ) {
             const mR = await User.updateOne({_id: token.userID}, {
@@ -469,8 +587,9 @@ app.get('/token/:tokenid', async(req, res) => {
             })
             console.log(mR)
         }
+        if( token.for !== "confirmUser" ) Problem.create({ description: 'token.for has been misclassified, should be confirmUser', details: token })
         
-        res.status(302).redirect('http://localhost:3000/user')
+        res.status(302).redirect('http://localhost:3000/user/')
     } catch (error) {
         console.log(error) 
     }
@@ -480,6 +599,14 @@ app.delete('/users/all', async(req, res) => {
         const mongoRes = await User.deleteMany()
         console.log(mongoRes)
         res.status(200).json(mongoRes)
+    } catch (error) {
+        console.log(error)
+    }
+})
+
+app.get('/report/:ip', async(req, res) => {
+    try {
+        console.log(req.params.ip)
     } catch (error) {
         console.log(error)
     }
