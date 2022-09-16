@@ -15,6 +15,10 @@ const tokenSchema = mongoose.Schema({
         type: String,
         required: [true, 'which type of Token is this?\n-confirmUser\n-forgotPassword\n(remember String type)']
     },
+    other: {
+        type: Object,
+        required: false,
+    }
 })
 
 module.exports = mongoose.model('Token', tokenSchema)

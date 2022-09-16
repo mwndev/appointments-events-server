@@ -2,6 +2,8 @@ const nodemailer = require('nodemailer')
 
 const thisURL = 'http://localhost:5040'
 
+const clientURL = 'http://localhost:3000'
+
 const mail = async (destination, subject, html) => {
     const transporter = nodemailer.createTransport({
         service: 'Hotmail',
@@ -28,4 +30,4 @@ const mail = async (destination, subject, html) => {
 }
 
 
-module.exports = {mail, thisURL}
+module.exports = {mail, thisURL, clientURL}

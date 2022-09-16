@@ -25,7 +25,7 @@ const SessionType = require('./config/models/sessionTypeModel')
 const User = require('./config/models/userModel')
 const Token = require('./config/models/tokenModel')
 const Problem = require('./config/models/serverProblemsModel')
-const { mail, thisURL } = require('./config/mailer')
+const { mail, thisURL, clientURL } = require('./config/mailer')
 const { temporalDateToNum, toTemporalDateTime } = require('./helperfunctions')
 
 connectDB()
@@ -44,8 +44,20 @@ process.stdin.on('data', data => {
     console.log(`this program does not take in shell arguments.`)
 })
 
+const adminEmails = ['zaneta.olcak76@gmail.com' , 'martinwiederaan@gmail.com']
 
+const verifyAdmin = async (email, password) => {
+    try {
+        if( !adminEmails.includes(email)) return false 
 
+        const account = await User.findOne({ email: email })
+
+        return await bcrypt.compare(password, account.password)
+
+    } catch (error) {
+        console.log(error)
+    }
+}
 
 
 
@@ -135,7 +147,7 @@ try {
 
 app.post('/problem', async(req, res) => {
     const b = req.body
-    const p = await Problem.create(b)
+    const p = await Problem.create({details: b})
 })
 
 
@@ -143,6 +155,16 @@ app.post('/problem', async(req, res) => {
 app.get('/appointment', async (req, res) => {
     try {
         const appointments = await Appointment.find()
+        res.status(200).json(appointments)
+
+    } catch (error) {
+        console.log(error)
+    }
+})
+app.get('/appointment/available', async (req, res) => {
+    try {
+        const appointments = await Appointment.find({ "reservation.userID": "" })
+
         res.status(200).json(appointments)
 
     } catch (error) {
@@ -179,25 +201,78 @@ app.put('/appointment/user', async (req, res) => {
 
         const user = await User.findById(b.user.id)
 
-        if(!selectedAppointment) return res.status(404).json({ message: 'please select a valid appointment'})
+        if(! await bcrypt.compare(b.user.password, user.password) ) return res.status(404).json({ msg: 'Please log out and then log in again. There\'s a problem with our database.'})
 
-        if(!selectedSessionType) return res.status(404).json({ message: 'please select a valid appointment type'})
+        if(!user.confirmed) return res.status(404).json({ msg: 'please click the \"confirm account\" link you were sent when creating your account'})
 
-        if(!user) return res.status(404).json({ message: 'please log in to book an appointment'})
+        if(!selectedAppointment) return res.status(404).json({ msg: 'please select a valid appointment'})
+
+        if(!selectedSessionType) return res.status(404).json({ msg: 'please select a valid appointment type'})
+
+        if(!user) return res.status(404).json({ msg: 'please log in to book an appointment'})
 
 
-        
+        res.status(200).json({message: 'please check your email to confirm your booking'})
+
+        const oldTokens = await Token.deleteMany({userID: user._id, for: 'confirmReservation'})
+
+        const newToken =  await Token.create({
+            other: {
+                appointmentID: selectedAppointment._id,
+                reservation: {
+                    numOfGuests: b.sessionType.participants.max,
+                    price: b.sessionType.price,
+                    userID: b.user.id,
+                    sessionTypeID: b.sessionType._id,
+                    sessionTypeName: b.sessionType.name,
+                    userNotes: b.notes,
+                }
+            },
+            userID: user._id, 
+            for: 'confirmReservation'})
+
+        await mail(b.user.email, 'Confirm Appointment', `
+            <h2>Hi ${user.firstName}!</h2>
+            <a href=${clientURL}/reserve/${newToken._id} >Click here to confirm your reservation</a>
+            <div>Didn't make this request?</div>
+            <a href=${thisURL}/report/${req.ip}>Click here</a>
+        `)
 
 
-        const updatedAppointment = await Appointment.updateOne({id: selectedAppointment._id}, {
-            "reservation.numOfGuests": b.sessionType.participants.max,
-            "reservation.price": b.sessionType.price,
-            "reservation.userID": b.user.id,
-            "reservation.sessionTypeID": b.sessionType._id,
-            "reservation.sessionTypeName": b.sessionType.name,
-            "reservation.userNotes": b.notes,
+    } catch (error) {
+        console.log(error)
+        res.status(400).json({error: error})
+    }
+})
+
+app.get('/reserve/:tokenid', async(req, res) => {
+    try {
+        const token = await Token.findById(req.params.tokenid)
+
+        if(token === null) return res.status(400).json({reserved: false, reason: 'expired link'})
+
+        const { reservation } = token.other
+
+        console.log(reservation)
+
+        const appointment = await Appointment.findById(token.other.appointmentID)
+
+        if( ! appointment.reservation.userID === '' ) return res.status(400).json({
+            reserved: false, 
+            reason: 'someone else booked the appointment before you clicked the link'
         })
+
+        const updatedAppointment = await Appointment.findByIdAndUpdate(token.other.appointmentID, {reservation})
         console.log(updatedAppointment)
+
+        const user = await User.findById(token.userID)
+
+        //TODO edit if statement
+        await mail(user.email, 'Your appointment has been confirmed!', `
+            <div>${JSON.stringify(reservation)}</div>
+        `)
+
+        res.status(200).json({reserved: true})
 
 
     } catch (error) {
@@ -210,6 +285,7 @@ app.put('/appointment/user', async (req, res) => {
 
 app.post('/appointment/admin', async (req, res) => {
     try {
+        if(!verifyAdmin(req.body.userData.email, req.body.userData.password)) return res.status(400).json({msg: 'admin verification failed'})
 
 
         const startDate = Temporal.PlainDate.from({
@@ -226,33 +302,35 @@ app.post('/appointment/admin', async (req, res) => {
 
         let dateToAdd
         let appointmentsArr = []
-        let daNumm
+        let num
         for(let i = 0 ; i < startDate.until(endDate).days; i +=1 ){
             
             dateToAdd = startDate.add({days: i})
-            console.log(startDate)
+
+            console.log(req.body.onDaysOfWeek)
             //onDaysOfWeek === [true, false, true, true, true, false, false] for eack weekday
-            if(req.body.onDaysOfWeek[dateToAdd.dayOfWeek - 1] === true)
+            if(req.body.onDaysOfWeek[dateToAdd.dayOfWeek - 1] === true){
 
+                num = temporalDateToNum(dateToAdd)
+                console.log(num)
 
-            daNumm = temporalDateToNum(dateToAdd)
-            console.log(daNumm)
-
-            appointmentsArr.push({
-                    date: {
-                        year: dateToAdd.year,
-                        month: dateToAdd.month,
-                        day: dateToAdd.day,
-                        dayOfWeek: dateToAdd.dayOfWeek,
-                        dateAsString: dateToAdd.toString(),
-                        dateAsNum: daNumm,
-                    }, period:{
-                        start: req.body.period.startTime,
-                        end: req.body.period.endTime,
-                    },
-                    //reservation: {} is set in different put
-                
-            })
+                appointmentsArr.push({
+                        date: {
+                            year: dateToAdd.year,
+                            month: dateToAdd.month,
+                            day: dateToAdd.day,
+                            dayOfWeek: dateToAdd.dayOfWeek,
+                            dateAsString: dateToAdd.toString(),
+                            dateAsNum: num,
+                        }, period:{
+                            start: req.body.period.startTime,
+                            end: req.body.period.endTime,
+                        },
+                        "reservation.numOfGuests": 0,
+                        //reservation: {} is set in different put
+                    
+                })
+            }
         }
 
         const mongoRes = await Appointment.insertMany(appointmentsArr)
@@ -268,9 +346,11 @@ app.post('/appointment/admin', async (req, res) => {
 
 app.delete('/appointment/admin', async(req, res) => {
     //req.body.appointment is an object like in the post request
-    console.log(req.body)
     
     try {
+        if(!verifyAdmin(req.body.userData.email, req.body.userData.password)) return res.status(400).json({msg: 'admin verification failed'})
+
+
         console.log(`req.body is`)
         console.log(req.body)
         const mongoRes = await Appointment.deleteMany({
@@ -283,6 +363,7 @@ app.delete('/appointment/admin', async(req, res) => {
             }, 
             "period.start": {$gte: req.body.period.startTime},
             "period.end": { $lte: req.body.period.endTime},
+            "reservation.numOfGuests": 0,
         })
         console.log(mongoRes)
         
@@ -292,17 +373,20 @@ app.delete('/appointment/admin', async(req, res) => {
     }
 })
 
-app.delete('/appointment/admin/byid', async (req, res) => {
+app.delete('/admin/byid', async (req, res) => {
     try {
-        console.log(req.body.objectIDArray)
+        const b = req.body
+        if(! await verifyAdmin(b.userData.email, b.userData.password)) return res.status(400).json({msg: 'admin verification failed'})
+        console.log(b.objectIDArray)
         
-        const mongoRes = await Appointment.deleteMany({_id: { $in: req.body.objectIDArray }})
+        const mongoRes = await Appointment.deleteMany({_id: { $in: b.objectIDArray }})
         console.log(mongoRes)
-        res.status(200).json({mongoRes})
+        res.status(200).json({msg: `You deleted ${mongoRes.deletedCount} appointment`})
     } catch (error) {
         console.log(error)
     }
 })
+
 
 
 
@@ -339,48 +423,27 @@ const acceptableDaysOfWeek = (arr) => {
 
 //the GET request is written as a post request because get requests can't have a body
 //! GET REQUEST
-app.post('/appointment/admin/get', async (req, res) => {
-    try {
-        const aD = acceptableDaysOfWeek(req.body.onDaysOfWeek)
-        console.log(req.body)
+app.get('/appointment/admin/:email/:password', async(req, res) => {
 
+    const {email, password} = req.params
 
+    if(!adminEmails.includes(email)) return res.status(400).json({ verified: false })
 
-        const allAppointments = await Appointment.find({
-                     
-            "date.dayOfWeek": {
-                $in: aD
-            },
-            "date.dateAsNum": {
-                $gte: req.body.startDate.asNum,
-                $lte: req.body.endDate.asNum,
-            },
-            "period.start": {
-                $gte: req.body.period.startTime
-            },
-            "period.end": {
-                $lte: req.body.period.endTime
-            }
-        })
+    const user = await User.findOne({ email: email })
 
-        let toSend = {}
+    if( !await bcrypt.compare(password, user.password) ) return res.status(400).json({ verified: false })
 
-        allAppointments.map((item, index) =>  toSend[item._id] = item)
+    const appointments = await Appointment.find()
 
-        res.status(200).json(allAppointments)
+    console.log(appointments)
 
-    } catch (error) {
-        console.log(error)
-    }
-
-
+    res.status(200).json({ verified: true, appointments: appointments })
 
 
 })
 
 app.get('/sessiontypes', async (req, res) => {
     try {
-
         const allSessionTypes = await SessionType.find()
 
         res.status(200).json(allSessionTypes)
@@ -392,6 +455,7 @@ app.get('/sessiontypes', async (req, res) => {
 
 app.post('/sessiontypes', async (req, res) => {
     try {
+        if(! await verifyAdmin(req.body.userData.email, req.body.userData.password)) return res.status(400).json({msg: 'admin verification failed'})
         console.log(req.body)
 
         const newType = req.body
@@ -409,6 +473,7 @@ app.post('/sessiontypes', async (req, res) => {
 //deletes by id
 app.delete('/sessiontypes', async(req, res) => {
     try {
+        if(! await verifyAdmin(req.body.userData.email, req.body.userData.password)) return res.status(400).json({msg: 'admin verification failed'})
         console.log(req.body)
 
         const mongoRes = await SessionType.deleteOne({_id: req.body.id})
@@ -488,7 +553,6 @@ app.post('/register', async(req, res) => {
 app.post('/login', async(req, res) => {
     try {
 
-        //TODO encrypt
         const user = await User.findOne({email: req.body.email})
 
         if( user === null || false === await bcrypt.compare(req.body.password, user.password) ){
@@ -496,13 +560,107 @@ app.post('/login', async(req, res) => {
             return
         }
 
+        const isAdmin = user.email === 'zaneta.olcak76@gmail.com' || 'martinwiederaan@gmail.com' === user.email
         
-        res.status(200).json({authenticated: true, userData: {firstName: user.firstName, lastName: user.lastName, id: user._id, email: user.email}})
+        res.status(200).json({ authenticated: true, userData: {
+            id: user._id, 
+            firstName: user.firstName, 
+            lastName: user.lastName, 
+            email: user.email, 
+            password: req.body.password,
+            isAdmin: isAdmin,
+        }})
 
     } catch (error) {
         res.status(400).json({error: error})
         console.log(error)
 
+    }
+})
+
+app.put('/cancel', async(req, res) => {
+    try {
+        const b = req.body
+        const user = await User.findOne({email: b.email})
+        console.log('cancelling')
+
+
+        console.log('updatedAppointment:')
+        const updatedAppointment = await Appointment.findByIdAndUpdate(b.id, { reservation: {
+            userID: '',
+            numOfGuests: 0,
+            sessionTypeID: '',
+            sessionTypeName: '',
+            userNotes: '',
+        }})
+        console.log(updatedAppointment)
+
+        res.status(200).json({cancelled: true})
+
+    } catch (error) {
+        console.log(error)
+    }
+})
+
+app.put('/cancel/admin', async(req, res) => {
+    try {
+        const b = req.body
+        console.log(b)
+        if(! await verifyAdmin(req.body.userData.email, req.body.userData.password)) return res.status(400).json({msg: 'admin verification failed'})
+
+        console.log('updatedAppointment:')
+        const updatedAppointments = await Appointment.updateMany({
+            _id: { $in: b.idArray }
+        }, {
+            reservation: {
+                userID: '',
+                numOfGuests: 0,
+                sessionTypeID: '',
+                sessionTypeName: '',
+                userNotes: '',
+            }
+        })
+        console.log(updatedAppointments)
+
+        res.status(200).json({cancelled: true, msg: `${updatedAppointments.modifiedCount} appointments were cancelled`})
+
+    } catch (error) {
+        console.log(error)
+    }
+})
+
+app.put('/user', async(req, res) => {
+    try {
+        const user = await User.findById(req.body.id)
+
+        if( user === null ) { 
+            await Problem.create({description: 'this user is logged in but their user id does not match any user saved on the server', details: req.body.id })
+            res.status(400).json({msg: 'Something went wrong. The error has been reported to the owner.'})
+            return 
+        }
+        console.log(req.body)
+
+        const match = await bcrypt.compare( req.body.password, user.password, )
+
+        if( !match ) {
+            await Problem.create({
+                description: 'this user is logged in but their saved password does not match any user saved on the server', 
+                details: {
+                    text: 'bcrypt.compare(req.body.pw, user.password) === false',
+                    user: user,
+                },
+            })
+            res.status(400).json({msg: 'Something went wrong. The error has been reported to the owner.'})
+            return 
+        }
+
+        let updatedUser = await User.findByIdAndUpdate(req.body.id, req.body.newData)
+        delete updatedUser.password
+
+        res.status(200).json(updatedUser)
+
+    } catch (error) {
+        console.log(error)
     }
 })
 
@@ -526,10 +684,10 @@ app.post('/forgot/', async(req, res) => {
 
         const newToken = await Token.create({ userID: user._id, for: 'forgotPassword' })
 
-        await mail(b.email, 'Reset Password', `
+        await mail(b.user.email, 'Reset Password', `
              <a href=${thisURL}/forgot/${newToken._id} >Click here to reset your password</a>
              <div>Didn't make this request?</div>
-             <a href=${thisURL}/report/${b.ip}>Click here</a>
+             <a href=${thisURL}/report/${b.ip}/${newToken._id}>Click here</a>
         `)
 
         res.status(200).json({userFound: true})
@@ -591,7 +749,7 @@ app.get('/token/:tokenid', async(req, res) => {
         
         res.status(302).redirect('http://localhost:3000/user/')
     } catch (error) {
-        console.log(error) 
+        console.log(error)
     }
 })
 app.delete('/users/all', async(req, res) => {
@@ -604,8 +762,9 @@ app.delete('/users/all', async(req, res) => {
     }
 })
 
-app.get('/report/:ip', async(req, res) => {
+app.get('/report/:ip/:tokenid', async(req, res) => {
     try {
+        await Token.findByIdAndDelete(req.params.tokenid)
         console.log(req.params.ip)
     } catch (error) {
         console.log(error)
