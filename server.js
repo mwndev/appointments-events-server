@@ -269,8 +269,10 @@ app.get('/reserve/:tokenid', async(req, res) => {
 
         //TODO edit if statement
         await mail(user.email, 'Your appointment has been confirmed!', `
-            <div>${JSON.stringify(reservation)}</div>
+            <div>The details can always be viewed on your account page on our website.</div>
         `)
+
+        token.delete()
 
         res.status(200).json({reserved: true})
 
@@ -381,7 +383,7 @@ app.delete('/admin/byid', async (req, res) => {
         
         const mongoRes = await Appointment.deleteMany({_id: { $in: b.objectIDArray }})
         console.log(mongoRes)
-        res.status(200).json({msg: `You deleted ${mongoRes.deletedCount} appointment`})
+        res.status(200).json({msg: `appointments deleted: ${mongoRes.deletedCount}`})
     } catch (error) {
         console.log(error)
     }
@@ -684,7 +686,7 @@ app.post('/forgot/', async(req, res) => {
 
         const newToken = await Token.create({ userID: user._id, for: 'forgotPassword' })
 
-        await mail(b.user.email, 'Reset Password', `
+        await mail(user.email, 'Reset Password', `
              <a href=${thisURL}/forgot/${newToken._id} >Click here to reset your password</a>
              <div>Didn't make this request?</div>
              <a href=${thisURL}/report/${b.ip}/${newToken._id}>Click here</a>
