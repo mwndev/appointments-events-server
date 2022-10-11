@@ -44,7 +44,7 @@ process.stdin.on('data', data => {
     console.log(`this program does not take in shell arguments.`)
 })
 
-const adminEmails = ['zaneta.olcak76@gmail.com' , 'martinwiederaan@gmail.com']
+const adminEmails = ['mwiedermann.b@gmail.com' , 'martinwiederaan@gmail.com']
 
 const verifyAdmin = async (email, password) => {
     try {
@@ -144,6 +144,10 @@ try {
     console.log(error)
 }
 
+
+app.get('/', async(req, res) => {
+    res.status(200).send("Hello world!")
+})
 
 app.post('/problem', async(req, res) => {
     const b = req.body
@@ -562,7 +566,7 @@ app.post('/login', async(req, res) => {
             return
         }
 
-        const isAdmin = user.email === 'zaneta.olcak76@gmail.com' || 'martinwiederaan@gmail.com' === user.email
+        const isAdmin = adminEmails.includes(user.email)
         
         res.status(200).json({ authenticated: true, userData: {
             id: user._id, 
