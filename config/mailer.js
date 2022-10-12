@@ -1,8 +1,8 @@
 const nodemailer = require('nodemailer')
 
-const thisURL = 'https://appointments-server.onrender.com/admin'
+const thisURL = 'https://appointments-server.onrender.com/'
 
-const clientURL = 'https://appointments-client.onrender.com/admin'
+const clientURL = 'https://appointments-client.onrender.com/'
 
 const mail = async (destination, subject, html) => {
     const transporter = nodemailer.createTransport({
