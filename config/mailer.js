@@ -1,15 +1,15 @@
 const nodemailer = require('nodemailer')
 
-const thisURL = 'http://localhost:5040'
+const thisURL = 'https://appointments-server.onrender.com/admin'
 
-const clientURL = 'http://localhost:3000'
+const clientURL = 'https://appointments-client.onrender.com/admin'
 
 const mail = async (destination, subject, html) => {
     const transporter = nodemailer.createTransport({
         service: 'Hotmail',
         auth: {
             user: 'nodemaimer@outlook.com',
-            pass: 'Aa1234567!'
+            pass: 'Aa1234567!',
         },
     })
 
