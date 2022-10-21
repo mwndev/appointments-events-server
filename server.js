@@ -44,7 +44,7 @@ process.stdin.on('data', data => {
     console.log(`this program does not take in shell arguments.`)
 })
 
-const adminEmails = ['mwiedermann.b@gmail.com' , 'martinwiederaan@gmail.com']
+const adminEmails = [process.env.ADMIN_EMAIL_ONE , process.env.ADMIN_EMAIL_TWO]
 
 const verifyAdmin = async (email, password) => {
     try {

@@ -1,21 +1,22 @@
+require('dotenv').config()
 const nodemailer = require('nodemailer')
 
-const thisURL = 'https://appointments-server.onrender.com/'
+const thisURL = process.env.THIS_URL
 
-const clientURL = 'https://appointments-client.onrender.com/'
+const clientURL = process.env.CLIENT_URL
 
 const mail = async (destination, subject, html) => {
     const transporter = nodemailer.createTransport({
-        service: 'Hotmail',
+        service: process.env.EMAIL_SERVICE,
         auth: {
-            user: 'nodemaimer@outlook.com',
-            pass: 'Aa1234567!',
+            user: process.env.EMAIL_ADR,
+            pass: process.env.EMAIL_PASS,
         },
     })
 
 
     const options = {
-        from: 'nodemaimer@outlook.com',
+        from: process.env.EMAIL_ADR,
         to: destination,
         subject: subject,
         html: html,
@@ -28,6 +29,6 @@ const mail = async (destination, subject, html) => {
 
 
 }
-
+console.log(`this url = ${thisURL}`)
 
 module.exports = {mail, thisURL, clientURL}
