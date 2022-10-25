@@ -146,7 +146,7 @@ try {
 
 
 app.get('/', async(req, res) => {
-    res.status(200).send("Hello world!")
+    res.status(200).send("This is the backend. Everything except for this route is json data.")
 })
 
 app.post('/problem', async(req, res) => {
