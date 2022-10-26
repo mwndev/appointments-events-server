@@ -2,24 +2,13 @@ require('dotenv').config()
 const express = require('express')
 const app = express()
 const cors = require('cors')
-const pool = require('./pgdb')
-const Redis = require('redis')
 const bcrypt = require('bcrypt')
 const mongoose = require('mongoose')
 const connectDB = require('./config/mongodb')
 const {Temporal, toTemporalInstant} = require('@js-temporal/polyfill')
-//HTTPS
-//FINISH OTHER PAGES
-//USER DASHBOARD
-//CLEANUP
-//add admin verification
 
 
 
-//!TODO date.dateAsNum seems to be broken
-
-//for booking an appointment
-//uses dd-mm-yyyy format
 const Appointment = require('./config/models/appointmentModel')
 const SessionType = require('./config/models/sessionTypeModel')
 const User = require('./config/models/userModel')
