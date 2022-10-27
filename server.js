@@ -5,7 +5,7 @@ const cors = require('cors')
 const bcrypt = require('bcrypt')
 const mongoose = require('mongoose')
 const connectDB = require('./config/mongodb')
-const {Temporal, toTemporalInstant} = require('@js-temporal/polyfill')
+const {Temporal} = require('@js-temporal/polyfill')
 
 
 
@@ -698,7 +698,7 @@ app.get('/forgot/:tokenid', async(req, res) => {
 
         console.log(token)
 
-        res.status(200).redirect(`http://localhost:3000/newpassword/${token._id}`)
+        res.status(200).redirect(`${clientURL}/newpassword/${token._id}`)
 
     } catch (error) {
         console.log(error)
@@ -739,10 +739,12 @@ app.get('/token/:tokenid', async(req, res) => {
                 confirmed: true
             })
             console.log(mR)
+            if( token.for !== "confirmUser" ) Problem.create({ description: 'token.for has been misclassified, should be confirmUser', details: token })
+            res.status(302).redirect(`${clientURL}/user/`)
+        }else{
+            res.status(400).send("Your confirmation token has already been used.")
         }
-        if( token.for !== "confirmUser" ) Problem.create({ description: 'token.for has been misclassified, should be confirmUser', details: token })
         
-        res.status(302).redirect('http://localhost:3000/user/')
     } catch (error) {
         console.log(error)
     }
