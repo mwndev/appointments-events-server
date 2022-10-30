@@ -341,25 +341,12 @@ app.post('/appointment/admin', async (req, res) => {
 
 app.delete('/appointment/admin', async(req, res) => {
     //req.body.appointment is an object like in the post request
-    
     try {
+        console.log(req.body)
         if(!verifyAdmin(req.body.userData.email, req.body.userData.password)) return res.status(400).json({msg: 'admin verification failed'})
 
+        const mongoRes = await Appointment.deleteMany({_id: { $in: req.body.idsArray } })
 
-        console.log(`req.body is`)
-        console.log(req.body)
-        const mongoRes = await Appointment.deleteMany({
-            "date.dateAsNum": { 
-                $gte: req.body.startDate.dateAsNum,
-                $lte: req.body.endDate.dateAsNum,
-            },
-            "date.dayOfWeek": {
-                $in: acceptableDaysOfWeek(req.body.onDaysOfWeek)
-            }, 
-            "period.start": {$gte: req.body.period.startTime},
-            "period.end": { $lte: req.body.period.endTime},
-            "reservation.numOfGuests": 0,
-        })
         console.log(mongoRes)
         
         res.status(200).json({mongoRes})
@@ -742,7 +729,7 @@ app.get('/token/:tokenid', async(req, res) => {
             if( token.for !== "confirmUser" ) Problem.create({ description: 'token.for has been misclassified, should be confirmUser', details: token })
             res.status(302).redirect(`${clientURL}/user/`)
         }else{
-            res.status(400).send("Your confirmation token has already been used.")
+            res.status(400).send("This link has already been used or has expired.")
         }
         
     } catch (error) {
